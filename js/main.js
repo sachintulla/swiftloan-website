@@ -1,12 +1,13 @@
 /* =========================================================
-   SwiftLoan.ai — Interactions
+   SwiftLoan.ai — Interactions (DOM wiring; logic in core.js)
    ========================================================= */
 (function () {
   'use strict';
 
+  var C = window.SLCore || {};
   const $  = (s, c = document) => c.querySelector(s);
   const $$ = (s, c = document) => Array.from(c.querySelectorAll(s));
-  const fmtINR = n => '₹' + Math.round(n).toLocaleString('en-IN');
+  const fmtINR = C.fmtINR || (n => '₹' + Math.round(n).toLocaleString('en-IN'));
 
   /* ---------- year ---------- */
   const yearEl = $('#year');
@@ -17,12 +18,12 @@
   const toTop = $('#toTop');
   const onScroll = () => {
     const y = window.scrollY;
-    nav.classList.toggle('scrolled', y > 10);
-    toTop.classList.toggle('show', y > 600);
+    if (nav) nav.classList.toggle('scrolled', y > 10);
+    if (toTop) toTop.classList.toggle('show', y > 600);
   };
   window.addEventListener('scroll', onScroll, { passive: true });
   onScroll();
-  toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  if (toTop) toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
   /* ---------- mobile menu ---------- */
   const navToggle = $('#navToggle');
@@ -34,15 +35,49 @@
     navToggle.setAttribute('aria-expanded', String(willOpen));
     document.body.style.overflow = willOpen ? 'hidden' : '';
   };
-  navToggle.addEventListener('click', () => toggleMenu());
-  $$('#navLinks a').forEach(a => a.addEventListener('click', () => toggleMenu(false)));
+  if (navToggle && navLinks) {
+    navToggle.addEventListener('click', () => toggleMenu());
+    $$('#navLinks a').forEach(a => a.addEventListener('click', () => toggleMenu(false)));
+  }
 
-  /* ---------- language toggle (EN/HI) ---------- */
+  /* ---------- language toggle (EN / HI) with live translation ---------- */
+  const applyLang = (lang) => {
+    document.documentElement.setAttribute('lang', lang === 'HI' ? 'hi' : 'en');
+    const dict = window.SLI18N;
+    if (!dict) return;
+    const table = lang === 'HI' ? dict.hi : dict.en;
+    $$('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      const val = (table && table[key]) != null ? table[key]
+                : (dict.en && dict.en[key]);
+      if (val != null) {
+        // preserve a leading/trailing icon span if present; only swap text nodes
+        const icon = el.querySelector(':scope > .msi');
+        if (icon) {
+          let iconFirst = true;
+          for (const node of el.childNodes) {
+            if (node === icon) break;
+            if (node.nodeType === 3 && node.textContent.trim()) { iconFirst = false; break; }
+          }
+          Array.from(el.childNodes).forEach(n => { if (n.nodeType === 3) el.removeChild(n); });
+          if (iconFirst) el.insertAdjacentText('beforeend', ' ' + val);
+          else el.insertAdjacentText('afterbegin', val + ' ');
+        } else {
+          el.textContent = val;
+        }
+      }
+    });
+    $$('[data-i18n-ph]').forEach(el => {
+      const key = el.getAttribute('data-i18n-ph');
+      const val = (table && table[key]) != null ? table[key] : (dict.en && dict.en[key]);
+      if (val != null) el.setAttribute('placeholder', val);
+    });
+  };
   $$('.langtoggle__btn').forEach(btn => {
     btn.addEventListener('click', () => {
       $$('.langtoggle__btn').forEach(b => b.classList.remove('is-active'));
       btn.classList.add('is-active');
-      document.documentElement.setAttribute('lang', btn.dataset.lang === 'HI' ? 'hi' : 'en');
+      applyLang(btn.dataset.lang);
     });
   });
 
@@ -70,18 +105,14 @@
     const suffix = el.dataset.suffix || '';
     const dur = 1600;
     const start = performance.now();
-    const isMoney = target >= 1000;
     const step = (now) => {
       const p = Math.min((now - start) / dur, 1);
       const eased = 1 - Math.pow(1 - p, 3);
-      let val = target * eased;
+      const val = target * eased;
       let out;
-      if (target >= 100000) out = (val / 100000).toFixed(val >= 100000 ? 1 : 0) + 'L';
-      else out = Math.round(val).toLocaleString('en-IN');
-      // custom formatting per stat
       if (el.dataset.count === '2400') out = '₹' + Math.round(val).toLocaleString('en-IN');
-      else if (el.dataset.count === '500000') out = Math.round(val).toLocaleString('en-IN');
-      el.textContent = out + (p === 1 ? suffix : (suffix ? '' : ''));
+      else out = Math.round(val).toLocaleString('en-IN');
+      el.textContent = out + (p === 1 ? suffix : '');
       if (p < 1) requestAnimationFrame(step);
       else el.textContent = out + suffix;
     };
@@ -116,43 +147,31 @@
   const donut = $('#donut');
   const R = 52, CIRC = 2 * Math.PI * R;
 
-  const fmtAmountLabel = (v) => {
-    if (v >= 10000000) return '₹' + (v / 10000000).toFixed(2) + 'Cr';
-    if (v >= 100000)   return '₹' + (v / 100000).toFixed(1).replace(/\.0$/, '') + 'L';
-    return '₹' + (v / 1000) + 'K';
-  };
-
   const calcEMI = () => {
-    const P = +amount.value;
-    const annual = +rate.value;
-    const n = +tenure.value;
-    const r = annual / 12 / 100;
-    const emi = r === 0 ? P / n : (P * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
-    const total = emi * n;
-    const interest = total - P;
+    const P = +amount.value, annual = +rate.value, n = +tenure.value;
+    const b = C.emiBreakdown ? C.emiBreakdown(P, annual, n)
+            : { emi: 0, total: P, interest: 0, principalRatio: 1 };
 
     amountOut.textContent = fmtINR(P);
     rateOut.textContent = annual.toFixed(1) + '%';
     tenureOut.textContent = n + ' month' + (n > 1 ? 's' : '');
-    emiOut.textContent = fmtINR(emi);
+    emiOut.textContent = fmtINR(b.emi);
     principalOut.textContent = fmtINR(P);
-    interestOut.textContent = fmtINR(interest);
-    totalOut.textContent = fmtINR(total);
+    interestOut.textContent = fmtINR(b.interest);
+    totalOut.textContent = fmtINR(b.total);
 
-    const principalRatio = P / total;
     if (donut) {
       donut.setAttribute('r', R);
-      donut.style.strokeDasharray = `${(principalRatio * CIRC).toFixed(1)} ${CIRC.toFixed(1)}`;
+      donut.style.strokeDasharray = (b.principalRatio * CIRC).toFixed(1) + ' ' + CIRC.toFixed(1);
     }
   };
   [amount, rate, tenure].forEach(el => el && el.addEventListener('input', calcEMI));
-  if (amount) { donut.style.strokeDasharray = `0 ${CIRC}`; calcEMI(); }
+  if (amount) { donut.style.strokeDasharray = '0 ' + CIRC; calcEMI(); }
 
   /* ---------- APPLICATION TRACKER ---------- */
   const demoApps = {
     'SL-2048': {
-      type: 'Personal Loan', amount: '₹5,00,000',
-      stage: 3,
+      type: 'Personal Loan', amount: '₹5,00,000', stage: 3,
       steps: [
         { t: 'Application submitted', d: 'Received on 12 Mar, 10:24 AM' },
         { t: 'Eligibility check', d: 'Soft check across 18 lenders — passed' },
@@ -161,12 +180,10 @@
         { t: 'Loan approved', d: 'Pending verification' },
         { t: 'Amount disbursed', d: 'Funds credited to your bank account' }
       ],
-      footIcon: 'hourglass_top',
-      foot: 'Action needed: complete your eKYC to move forward.'
+      footIcon: 'hourglass_top', foot: 'Action needed: complete your eKYC to move forward.'
     },
     'SL-3110': {
-      type: 'Business Loan', amount: '₹15,00,000',
-      stage: 5,
+      type: 'Business Loan', amount: '₹15,00,000', stage: 5,
       steps: [
         { t: 'Application submitted', d: 'Received on 02 Mar, 4:11 PM' },
         { t: 'Eligibility check', d: 'GST & bank-flow analysed — passed' },
@@ -175,8 +192,7 @@
         { t: 'Loan approved', d: 'Approved by MetroCredit NBFC' },
         { t: 'Amount disbursed', d: '₹15,00,000 credited on 06 Mar' }
       ],
-      footIcon: 'check_circle',
-      foot: 'All done! Your loan has been fully disbursed.'
+      footIcon: 'check_circle', foot: 'All done! Your loan has been fully disbursed.'
     }
   };
 
@@ -187,8 +203,9 @@
   const tkSteps = $('#tkSteps');
 
   const renderTracker = (id) => {
-    const key = id.trim().toUpperCase();
-    const app = demoApps[key];
+    const res = C.lookupApp ? C.lookupApp(id, demoApps)
+              : { key: String(id).trim().toUpperCase(), app: demoApps[String(id).trim().toUpperCase()] || null };
+    const key = res.key, app = res.app;
     if (!app) {
       trackerEmpty.hidden = false;
       trackerBody.hidden = true;
@@ -228,17 +245,16 @@
     );
   }
 
-  /* ---------- LEAD FORM validation ---------- */
+  /* ---------- LEAD FORM ---------- */
   const leadForm = $('#leadForm');
   const formSuccess = $('#formSuccess');
+  const loanTypeEl = $('#loanType');
+  const loanAmountEl = $('#loanAmount');
+  const FIELD_NAMES = ['loanType', 'loanAmount', 'fullName', 'phone', 'email'];
 
-  const validators = {
-    loanType:   v => v ? '' : 'Please select a loan type.',
-    loanAmount: v => (!v ? 'Enter an amount.' : (+v < 50000 ? 'Minimum amount is ₹50,000.' : '')),
-    fullName:   v => (v.trim().length < 3 ? 'Enter your full name.' : ''),
-    phone:      v => (/^[6-9]\d{9}$/.test(v.trim()) ? '' : 'Enter a valid 10-digit mobile number.'),
-    email:      v => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? '' : 'Enter a valid email address.'),
-  };
+  const ctx = () => ({ loanType: loanTypeEl ? loanTypeEl.value : '' });
+  const validate = (name, value) =>
+    C.validateField ? C.validateField(name, value, ctx()) : '';
 
   const setErr = (name, msg) => {
     const field = $('#' + name);
@@ -248,39 +264,46 @@
     return !msg;
   };
 
+  // keep the amount field's min attribute + hint in sync with the chosen product
+  const syncAmountBounds = () => {
+    if (!loanAmountEl || !C.amountBounds) return;
+    const b = C.amountBounds(loanTypeEl ? loanTypeEl.value : '');
+    loanAmountEl.min = b.min;
+    loanAmountEl.max = b.max;
+    if (loanAmountEl.classList.contains('invalid')) setErr('loanAmount', validate('loanAmount', loanAmountEl.value));
+  };
+
   if (leadForm) {
-    // inline validation on blur
-    Object.keys(validators).forEach(name => {
+    FIELD_NAMES.forEach(name => {
       const f = $('#' + name);
-      if (f) f.addEventListener('blur', () => setErr(name, validators[name](f.value)));
-      if (f) f.addEventListener('input', () => { if (f.classList.contains('invalid')) setErr(name, validators[name](f.value)); });
+      if (!f) return;
+      f.addEventListener('blur', () => setErr(name, validate(name, f.value)));
+      f.addEventListener('input', () => { if (f.classList.contains('invalid')) setErr(name, validate(name, f.value)); });
+      f.addEventListener('change', () => { if (f.classList.contains('invalid')) setErr(name, validate(name, f.value)); });
     });
+    if (loanTypeEl) loanTypeEl.addEventListener('change', syncAmountBounds);
+    syncAmountBounds();
 
     leadForm.addEventListener('submit', (e) => {
       e.preventDefault();
       let ok = true;
-      Object.keys(validators).forEach(name => {
-        const valid = setErr(name, validators[name]($('#' + name).value));
-        ok = ok && valid;
-      });
+      FIELD_NAMES.forEach(name => { ok = setErr(name, validate(name, $('#' + name).value)) && ok; });
       const consent = $('#consent');
       const consentOk = consent.checked;
       $('.err[data-for="consent"]').textContent = consentOk ? '' : 'Please provide your consent to continue.';
       ok = ok && consentOk;
 
       if (!ok) {
-        const firstInvalid = leadForm.querySelector('.invalid') ||
-          (!consentOk ? consent : null);
+        const firstInvalid = leadForm.querySelector('.invalid') || (!consentOk ? consent : null);
         if (firstInvalid) firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
 
-      // simulate submission
       const btn = $('#leadSubmit');
       btn.textContent = 'Matching you with lenders…';
       btn.disabled = true;
       setTimeout(() => {
-        const id = 'SL-' + Math.floor(1000 + Math.random() * 9000);
+        const id = C.makeRefId ? C.makeRefId() : 'SL-' + Math.floor(1000 + Math.random() * 9000);
         $('#genId').textContent = id;
         leadForm.querySelectorAll('.field,.field-row,.consent,.err,#leadSubmit,.apply__disclaimer,.apply__form-head')
           .forEach(el => el.style.display = 'none');
@@ -289,6 +312,16 @@
       }, 1100);
     });
   }
+
+  /* ---------- pre-select loan type from product CTAs ---------- */
+  $$('[data-loan]').forEach(a => {
+    a.addEventListener('click', () => {
+      if (loanTypeEl) {
+        loanTypeEl.value = a.getAttribute('data-loan');
+        loanTypeEl.dispatchEvent(new Event('change'));
+      }
+    });
+  });
 
   /* ---------- FAQ: single-open accordion ---------- */
   const faqItems = $$('#faqList .faq__item');
@@ -305,8 +338,7 @@
     entries.forEach(e => {
       if (e.isIntersecting) {
         const id = e.target.id;
-        navAnchors.forEach(a =>
-          a.style.color = a.getAttribute('href') === '#' + id ? 'var(--primary)' : '');
+        navAnchors.forEach(a => a.classList.toggle('is-active', a.getAttribute('href') === '#' + id));
       }
     });
   }, { rootMargin: '-45% 0px -50% 0px' });

@@ -162,6 +162,7 @@ h4{font-size:1rem}
 .nav__links{display:flex;align-items:center;gap:1.5rem}
 .nav__links a{font-weight:600;font-size:.92rem;color:var(--sub);transition:color .18s}
 .nav__links a:hover{color:var(--teal)}
+.nav__links a.is-active{color:var(--teal)}
 .nav__cta-mobile{display:none}
 .nav__actions{display:flex;align-items:center;gap:.9rem}
 .langtoggle{display:flex;gap:2px;background:rgba(255,255,255,.7);border:1px solid var(--border);border-radius:var(--pill);padding:3px}
