@@ -41,8 +41,10 @@
   }
 
   /* ---------- language toggle (EN / HI) with live translation ---------- */
+  let curLang = 'EN';
   const applyLang = (lang) => {
-    document.documentElement.setAttribute('lang', lang === 'HI' ? 'hi' : 'en');
+    curLang = lang === 'HI' ? 'HI' : 'EN';
+    document.documentElement.setAttribute('lang', curLang === 'HI' ? 'hi' : 'en');
     const dict = window.SLI18N;
     if (!dict) return;
     const table = lang === 'HI' ? dict.hi : dict.en;
@@ -250,6 +252,8 @@
   const formSuccess = $('#formSuccess');
   const loanTypeEl = $('#loanType');
   const loanAmountEl = $('#loanAmount');
+  const leadSubmit = $('#leadSubmit');
+  const leadSubmitHTML = leadSubmit ? leadSubmit.innerHTML : '';
   const FIELD_NAMES = ['loanType', 'loanAmount', 'fullName', 'phone', 'email'];
 
   const ctx = () => ({ loanType: loanTypeEl ? loanTypeEl.value : '' });
@@ -299,17 +303,34 @@
         return;
       }
 
-      const btn = $('#leadSubmit');
-      btn.textContent = 'Matching you with lenders…';
+      const btn = leadSubmit;
+      const table = window.SLI18N ? window.SLI18N[curLang === 'HI' ? 'hi' : 'en'] : null;
+      btn.textContent = (table && table['apply.matching']) || 'Matching you with lenders…';
       btn.disabled = true;
       setTimeout(() => {
         const id = C.makeRefId ? C.makeRefId() : 'SL-' + Math.floor(1000 + Math.random() * 9000);
         $('#genId').textContent = id;
-        leadForm.querySelectorAll('.field,.field-row,.consent,.err,#leadSubmit,.apply__disclaimer,.apply__form-head')
-          .forEach(el => el.style.display = 'none');
+        leadForm.classList.add('is-done');   // hides inputs via CSS (fully reversible)
         formSuccess.hidden = false;
         formSuccess.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 1100);
+    });
+
+    // "Check another rate" — restore the form so a user can submit again
+    const resetLead = $('#resetLead');
+    if (resetLead) resetLead.addEventListener('click', () => {
+      leadForm.classList.remove('is-done');
+      formSuccess.hidden = true;
+      ['loanType', 'loanAmount', 'fullName', 'phone', 'email', 'city'].forEach(id => {
+        const f = $('#' + id); if (f) f.value = '';
+      });
+      const consentEl = $('#consent'); if (consentEl) consentEl.checked = false;
+      FIELD_NAMES.forEach(n => setErr(n, ''));
+      const ce = $('.err[data-for="consent"]'); if (ce) ce.textContent = '';
+      if (leadSubmit) { leadSubmit.disabled = false; leadSubmit.innerHTML = leadSubmitHTML; }
+      applyLang(curLang);      // re-translate restored controls to the active language
+      syncAmountBounds();
+      leadForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
   }
 
