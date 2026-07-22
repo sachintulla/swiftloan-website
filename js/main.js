@@ -310,6 +310,23 @@
       setTimeout(() => {
         const id = C.makeRefId ? C.makeRefId() : 'SL-' + Math.floor(1000 + Math.random() * 9000);
         $('#genId').textContent = id;
+        // register the just-submitted application so it is immediately trackable
+        const amtNum = +(loanAmountEl && loanAmountEl.value) || 0;
+        demoApps[id] = {
+          type: (loanTypeEl && loanTypeEl.value) || 'Personal Loan',
+          amount: fmtINR(amtNum),
+          stage: 1,
+          steps: [
+            { t: 'Application submitted', d: 'Just now' },
+            { t: 'Eligibility check', d: 'Running a soft check across lenders…' },
+            { t: 'Offers matched', d: 'Pending' },
+            { t: 'eKYC & verification', d: 'Pending' },
+            { t: 'Loan approved', d: 'Pending' },
+            { t: 'Amount disbursed', d: 'Pending' }
+          ],
+          footIcon: 'schedule',
+          foot: "We've received your application and are matching you with lenders."
+        };
         leadForm.classList.add('is-done');   // hides inputs via CSS (fully reversible)
         formSuccess.hidden = false;
         formSuccess.scrollIntoView({ behavior: 'smooth', block: 'center' });
